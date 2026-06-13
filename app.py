@@ -2781,7 +2781,7 @@ def _llm_cloud_sync(prompt, max_tokens=1200):
     try:
         api_key = ZHIPU_MODELS.get(AUDIT_CLOUD_MODEL)
         if not api_key:
-            return _llm_sync(prompt)
+            return "[错误] 未配置智谱 API Key，请设置环境变量或修改 ZHIPU_MODELS"
         r = requests.post(f"{ZHIPU_API_URL}/chat/completions", headers={
             "Authorization": f"Bearer {api_key}"
         }, json={
@@ -2792,7 +2792,8 @@ def _llm_cloud_sync(prompt, max_tokens=1200):
         }, timeout=120)
         return r.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        return _llm_sync(prompt)
+        # 云端环境下 Ollama 也不可用，直接返回错误而非静默降级
+        return f"[诊断服务暂时不可用: {str(e)[:80]}。请检查智谱 API 连通性或稍后重试]"
 
 @app.route("/audit")
 def audit_page():
