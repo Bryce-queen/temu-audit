@@ -1002,6 +1002,13 @@ input[type="checkbox"]:checked::after {
 }
 .theme-toggle:hover { background: var(--hover); color: var(--text); }
 
+.nav-link {
+  background: var(--primary); color: #fff; text-decoration: none;
+  padding: 4px 14px; border-radius: 6px; font-size: 13px; font-weight: 600;
+  transition: opacity .15s; margin-left: 6px;
+}
+.nav-link:hover { opacity: .85; }
+
 #sysPromptBtn {
   background: transparent; border: var(--border); color: var(--text-secondary);
   width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
@@ -2385,7 +2392,8 @@ th{background:#f0f0f0;font-weight:600}
 </head>
 <body>
 <div class="header">
-  <a class="lang-link" href="/audit">中文</a>
+  <a class="lang-link" href="/">Home</a>
+  <a class="lang-link" href="/audit" style="right:78px">中文</a>
   <h1>Temu Listing AI Audit</h1>
   <p>Enter your product info — AI scans compliance risks, keywords, and competitors to generate a custom optimization plan</p>
 </div>
