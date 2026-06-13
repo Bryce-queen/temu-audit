@@ -2763,7 +2763,7 @@ function renderOptimizedListing(text){
 
 # 报告存储（DB持久化）
 AUDIT_MODEL = "qwen2.5:3b"
-AUDIT_CLOUD_MODEL = "glm-4-flash"
+AUDIT_CLOUD_MODEL = "glm-4.5-air"
 
 def _llm_sync(prompt):
     """调用本地模型（降级方案），返回文本"""
