@@ -3044,5 +3044,14 @@ def no_cache(r):
     r.headers['Expires']='0'
     return r
 
+@app.route("/widget.js")
+def widget_js():
+    js_path = os.path.join(os.path.dirname(__file__), "static", "widget.js")
+    with open(js_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    r = Response(content, mimetype="application/javascript")
+    r.headers["Cache-Control"] = "public, max-age=3600"
+    return r
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False)
