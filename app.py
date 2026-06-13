@@ -495,6 +495,28 @@ def upload():
     count = add_to_kb(f.filename, filepath)
     return jsonify({"ok": True, "filename": os.path.basename(filepath), "chunks": count})
 
+@app.route("/upload-image", methods=["POST"])
+def upload_image():
+    if 'file' not in request.files:
+        return jsonify({"error": "没有文件"}), 400
+    f = request.files['file']
+    if f.filename == '':
+        return jsonify({"error": "文件名为空"}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']:
+        return jsonify({"error": f"不支持的图片格式: {ext}"}), 400
+    import base64
+    img_data = f.read()
+    b64 = base64.b64encode(img_data).decode('utf-8')
+    mime_map = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+                '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp'}
+    mime = mime_map.get(ext, 'image/jpeg')
+    return jsonify({
+        "ok": True, "filename": f.filename,
+        "base64": b64, "mime": mime,
+        "data_url": f"data:{mime};base64,{b64}"
+    })
+
 @app.route("/documents", methods=["GET", "DELETE"])
 def handle_docs():
     conn = get_db()
@@ -572,6 +594,7 @@ def chat():
     use_rag = data.get("rag", False)
     scene = data.get("scene", "general")
     stream = data.get("stream", False)
+    images = data.get("images", []) if not is_cloud else []
 
     if not prompt:
         return jsonify({"error": "消息为空"}), 400
@@ -609,6 +632,10 @@ def chat():
                     for token in _stream_cloud(model, prompt, history_msgs, docs, system_prompt):
                         full_response += token
                         yield f"data: {json.dumps({'token': token})}\n\n"
+                elif images:
+                    for token in _chat_local_vision_stream(model, prompt, images, history_msgs, docs, system_prompt):
+                        full_response += token
+                        yield f"data: {json.dumps({'token': token})}\n\n"
                 else:
                     for token in _chat_local_stream(model, prompt, history_msgs, docs, system_prompt):
                         full_response += token
@@ -628,6 +655,9 @@ def chat():
         try:
             if is_cloud:
                 used_model, response_text = _cloud_with_fallback(model, prompt, history_msgs, docs, system_prompt)
+            elif images:
+                used_model = model
+                response_text = "".join(_chat_local_vision_stream(model, prompt, images, history_msgs, docs, system_prompt))
             else:
                 used_model = model
                 response_text = "".join(_chat_local_stream(model, prompt, history_msgs, docs, system_prompt))
@@ -664,6 +694,41 @@ def _chat_local_stream(model, prompt, history_msgs, docs, system_prompt):
                 if 'response' in data:
                     yield data['response']
                 if data.get('done', False):
+                    break
+            except:
+                pass
+
+def _chat_local_vision_stream(model, prompt, images, history_msgs, docs, system_prompt):
+    """流式调用 Ollama /api/chat，支持图片（vision models）。"""
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    if docs:
+        context = "以下是与用户问题相关的参考文档：\n\n" + "\n\n---\n\n".join(docs) + "\n\n请基于以上参考文档回答用户问题。"
+        messages.append({"role": "system", "content": context})
+    if history_msgs:
+        for m in history_msgs[-6:]:
+            role = "assistant" if m["role"] == "assistant" else "user"
+            messages.append({"role": role, "content": m["content"][:500]})
+
+    user_msg = {"role": "user", "content": prompt}
+    if images:
+        user_msg["images"] = images
+    messages.append(user_msg)
+
+    r = requests.post(f"{OLLAMA_API}/chat", json={
+        "model": model, "messages": messages, "stream": True,
+        "options": {"temperature": 0.7}
+    }, stream=True, timeout=180)
+
+    for line in r.iter_lines():
+        if line:
+            try:
+                data = json.loads(line.decode('utf-8'))
+                msg = data.get("message", {})
+                if "content" in msg:
+                    yield msg["content"]
+                if data.get("done", False):
                     break
             except:
                 pass
@@ -994,6 +1059,18 @@ input[type="checkbox"]:checked::after {
 .btn-ghost.upload { border-style: dashed; }
 .btn-ghost.upload:hover { border-color: var(--primary); color: var(--primary); }
 
+.img-preview {
+  display: flex; gap: 8px; padding: 8px 16px; overflow-x: auto;
+  background: var(--bg); border-bottom: var(--border);
+}
+.img-thumb {
+  flex-shrink: 0; width: 56px; height: 56px; border-radius: 8px;
+  overflow: hidden; cursor: pointer; border: 2px solid transparent;
+  transition: border-color .15s;
+}
+.img-thumb:hover { border-color: var(--primary); }
+.img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
 .theme-toggle {
   background: transparent; border: var(--border); color: var(--text-secondary);
   width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
@@ -1300,11 +1377,14 @@ input[type="checkbox"]:checked::after {
     <label><input type="checkbox" id="ragToggle"> RAG</label>
     <input type="file" id="fileInput" multiple accept=".txt,.md,.pdf,.docx,.xlsx,.xls" style="display:none" onchange="uploadFiles(this.files)">
     <button class="btn-ghost upload" onclick="document.getElementById('fileInput').click()">上传</button>
+    <input type="file" id="imgInput" multiple accept="image/*" style="display:none" onchange="uploadImages(this.files)">
+    <button class="btn-ghost upload" onclick="document.getElementById('imgInput').click()" title="上传图片给视觉模型识别">图片</button>
     <button class="btn-ghost" onclick="showDocs()">知识库</button>
     <button class="btn-ghost" onclick="exportChat()" title="导出对话">导出</button>
     <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">&#9681;</button>
     <a class="nav-link" href="/audit">诊断</a>
   </div>
+  <div id="imgPreview" class="img-preview" style="display:none"></div>
   <div class="chat" id="chat">
     <div class="empty-state">
       <h3>AI Chat</h3>
@@ -1319,7 +1399,7 @@ input[type="checkbox"]:checked::after {
   </div>
 </div>
 <script>
-let currentSession=null,currentModel='qwen2.5:3b',isStreaming=false,allSessions=[],allTags=[],activeTag=null;
+let currentSession=null,currentModel='qwen2.5:3b',isStreaming=false,allSessions=[],allTags=[],activeTag=null,pendingImages=[];
 const chatEl=document.getElementById('chat'),promptEl=document.getElementById('promptIn'),
   sendBtn=document.getElementById('sendBtn'),modelSel=document.getElementById('modelSel'),
   ragToggle=document.getElementById('ragToggle'),sessionList=document.getElementById('sessionList'),
@@ -1670,7 +1750,7 @@ async function send(){
   try{
     const r=await fetch('/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({prompt:p,model:currentModel,session_id:currentSession,rag:ragToggle.checked,scene:sceneSel.value,stream:true})
+      body:JSON.stringify({prompt:p,model:currentModel,session_id:currentSession,rag:ragToggle.checked,scene:sceneSel.value,stream:true,images:pendingImages})
     });
     
     if(!r.ok){
@@ -1726,6 +1806,12 @@ async function send(){
     isStreaming=false;
     sendBtn.disabled=false;
     promptEl.focus();
+    if(pendingImages.length){
+      pendingImages=[];
+      const preview=document.getElementById('imgPreview');
+      preview.innerHTML='';
+      preview.style.display='none';
+    }
   }
 }
 
@@ -1834,6 +1920,31 @@ async function uploadFiles(files){
   }
   toast('已上传 ' + files.length + ' 个文件，' + count + ' 个文本块');
   document.getElementById('fileInput').value='';
+}
+
+// ---- Image Upload ----
+async function uploadImages(files){
+  if(!files.length)return;
+  const preview=document.getElementById('imgPreview');
+  for(const f of files){
+    const fd=new FormData();fd.append('file',f);
+    const r=await fetch('/upload-image',{method:'POST',body:fd});
+    const d=await r.json();
+    if(d.ok){
+      pendingImages.push(d.base64);
+      const thumb=document.createElement('div');
+      thumb.className='img-thumb';
+      const img=document.createElement('img');
+      img.src=d.data_url;
+      thumb.appendChild(img);
+      thumb.title=d.filename+' (点击移除)';
+      const idx=pendingImages.length-1;
+      thumb.onclick=()=>{pendingImages.splice(idx,1);thumb.remove();if(!pendingImages.length)preview.style.display='none';};
+      preview.appendChild(thumb);
+    }
+  }
+  preview.style.display='flex';
+  document.getElementById('imgInput').value='';
 }
 
 // ---- Knowledge Base ----
