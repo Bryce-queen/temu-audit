@@ -34,13 +34,42 @@ UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ---- 智谱 API ----
-ZHIPU_API_URL = "https://open.bigmodel.cn/api/paas/v4"
-ZHIPU_MODELS = {
-    "glm-4.5-air": "ZHIPU_KEY_REVOKED"
-}
-CLOUD_FALLBACK = {}
+# ---- 云端模型注册表 ----
 CLOUD_PREFIX = "cloud:"
+CLOUD_MODELS = {
+    # 智谱 AI
+    "glm-4.5-air": {
+        "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "api_key": "ZHIPU_KEY_REVOKED",
+        "provider": "智谱"
+    },
+    # 硅基流动（免费，OpenAI 兼容）
+    "Qwen/Qwen3-8B": {
+        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "api_key": "SILICONFLOW_KEY_REVOKED",
+        "provider": "硅基流动"
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": {
+        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "api_key": "SILICONFLOW_KEY_REVOKED",
+        "provider": "硅基流动"
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Llama-8B": {
+        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "api_key": "SILICONFLOW_KEY_REVOKED",
+        "provider": "硅基流动"
+    },
+    "Qwen/Qwen2.5-7B-Instruct": {
+        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "api_key": "SILICONFLOW_KEY_REVOKED",
+        "provider": "硅基流动"
+    },
+    "THUDM/glm-4-9b-chat": {
+        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "api_key": "SILICONFLOW_KEY_REVOKED",
+        "provider": "硅基流动"
+    },
+}
 
 # ---- 场景预设 ----
 SCENE_PROMPTS = {
@@ -258,7 +287,7 @@ def models():
     except:
         pass
     # 添加云端模型
-    for name in ZHIPU_MODELS:
+    for name in CLOUD_MODELS:
         model_list.append(f"{CLOUD_PREFIX}{name}")
     return jsonify(model_list)
 
@@ -733,10 +762,15 @@ def _chat_local_vision_stream(model, prompt, images, history_msgs, docs, system_
             except:
                 pass
 
-def _chat_cloud(model, prompt, history_msgs, docs, system_prompt):
-    api_key = ZHIPU_MODELS.get(model)
-    if not api_key:
+def _get_cloud_config(model):
+    """获取云端模型配置：api_url, api_key, provider"""
+    cfg = CLOUD_MODELS.get(model)
+    if not cfg:
         raise Exception(f"未知云端模型: {model}")
+    return cfg
+
+def _chat_cloud(model, prompt, history_msgs, docs, system_prompt):
+    cfg = _get_cloud_config(model)
 
     messages = []
     if system_prompt:
@@ -755,8 +789,8 @@ def _chat_cloud(model, prompt, history_msgs, docs, system_prompt):
     # 当前消息
     messages.append({"role": "user", "content": prompt})
 
-    r = requests.post(f"{ZHIPU_API_URL}/chat/completions", headers={
-        "Authorization": f"Bearer {api_key}",
+    r = requests.post(cfg["api_url"], headers={
+        "Authorization": f"Bearer {cfg['api_key']}",
         "Content-Type": "application/json"
     }, json={"model": model, "messages": messages, "stream": False}, timeout=180)
 
@@ -764,9 +798,7 @@ def _chat_cloud(model, prompt, history_msgs, docs, system_prompt):
     return r.json()["choices"][0]["message"]["content"]
 
 def _stream_cloud(model, prompt, history_msgs, docs, system_prompt):
-    api_key = ZHIPU_MODELS.get(model)
-    if not api_key:
-        raise Exception(f"未知云端模型: {model}")
+    cfg = _get_cloud_config(model)
 
     messages = []
     if system_prompt:
@@ -779,8 +811,8 @@ def _stream_cloud(model, prompt, history_msgs, docs, system_prompt):
         messages.append({"role": role, "content": m["content"][:2000]})
     messages.append({"role": "user", "content": prompt})
 
-    r = requests.post(f"{ZHIPU_API_URL}/chat/completions", headers={
-        "Authorization": f"Bearer {api_key}",
+    r = requests.post(cfg["api_url"], headers={
+        "Authorization": f"Bearer {cfg['api_key']}",
         "Content-Type": "application/json"
     }, json={"model": model, "messages": messages, "stream": True}, stream=True, timeout=180)
 
@@ -796,17 +828,8 @@ def _stream_cloud(model, prompt, history_msgs, docs, system_prompt):
                 pass
 
 def _cloud_with_fallback(model, prompt, history_msgs, docs, system_prompt):
-    """云端模型自动降级：4.7限流→4.5"""
-    try:
-        return model, _chat_cloud(model, prompt, history_msgs, docs, system_prompt)
-    except Exception as e:
-        fb = CLOUD_FALLBACK.get(model)
-        if fb and "429" in str(e):
-            try:
-                return fb, f"[{fb} 自动降级]\n\n" + _chat_cloud(fb, prompt, history_msgs, docs, system_prompt)
-            except:
-                raise Exception(f"云端模型均不可用 ({model}→{fb}): {e}")
-        raise
+    """调用云端模型（多 provider 支持）"""
+    return model, _chat_cloud(model, prompt, history_msgs, docs, system_prompt)
 
 # ---- PWA ----
 @app.route("/manifest.json")
@@ -2777,13 +2800,12 @@ def _llm_sync(prompt):
         return f"[LLM 调用失败: {e}]"
 
 def _llm_cloud_sync(prompt, max_tokens=1200):
-    """调用云端 glm-4.5-air，质量更高"""
+    """调用云端模型，质量更高"""
     try:
-        api_key = ZHIPU_MODELS.get(AUDIT_CLOUD_MODEL)
-        if not api_key:
-            return "[错误] 未配置智谱 API Key，请设置环境变量或修改 ZHIPU_MODELS"
-        r = requests.post(f"{ZHIPU_API_URL}/chat/completions", headers={
-            "Authorization": f"Bearer {api_key}"
+        cfg = _get_cloud_config(AUDIT_CLOUD_MODEL)
+        r = requests.post(cfg["api_url"], headers={
+            "Authorization": f"Bearer {cfg['api_key']}",
+            "Content-Type": "application/json"
         }, json={
             "model": AUDIT_CLOUD_MODEL,
             "messages": [{"role": "user", "content": prompt}],
@@ -2792,8 +2814,7 @@ def _llm_cloud_sync(prompt, max_tokens=1200):
         }, timeout=120)
         return r.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        # 云端环境下 Ollama 也不可用，直接返回错误而非静默降级
-        return f"[诊断服务暂时不可用: {str(e)[:80]}。请检查智谱 API 连通性或稍后重试]"
+        return f"[诊断服务暂时不可用: {str(e)[:80]}。请检查 API 连通性或稍后重试]"
 
 @app.route("/audit")
 def audit_page():
