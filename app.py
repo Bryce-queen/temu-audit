@@ -1303,6 +1303,7 @@ input[type="checkbox"]:checked::after {
     <button class="btn-ghost" onclick="showDocs()">知识库</button>
     <button class="btn-ghost" onclick="exportChat()" title="导出对话">导出</button>
     <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">&#9681;</button>
+    <a class="nav-link" href="/audit">诊断</a>
   </div>
   <div class="chat" id="chat">
     <div class="empty-state">
@@ -2118,7 +2119,8 @@ th{background:#f0f0f0;font-weight:600}
 </head>
 <body>
 <div class="header">
-  <a class="lang-link" href="/en/audit">EN</a>
+  <a class="lang-link" href="/">首页</a>
+  <a class="lang-link" href="/en/audit" style="right:68px">EN</a>
   <h1>Temu Listing 智能诊断</h1>
   <p>输入你的商品信息，AI 立即扫描合规风险、关键词、竞品，生成专属优化方案</p>
 </div>
