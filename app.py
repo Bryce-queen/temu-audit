@@ -594,13 +594,13 @@ def chat():
     use_rag = data.get("rag", False)
     scene = data.get("scene", "general")
     stream = data.get("stream", False)
-    images = data.get("images", []) if not is_cloud else []
 
     if not prompt:
         return jsonify({"error": "消息为空"}), 400
 
     is_cloud = model_raw.startswith(CLOUD_PREFIX)
     model = model_raw[len(CLOUD_PREFIX):] if is_cloud else model_raw
+    images = data.get("images", []) if not is_cloud else []
 
     # 保存用户消息
     conn = get_db()
