@@ -49,22 +49,7 @@ CLOUD_MODELS = {
         "api_key": "SILICONFLOW_KEY_REVOKED",
         "provider": "硅基流动"
     },
-    "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": {
-        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
-        "api_key": "SILICONFLOW_KEY_REVOKED",
-        "provider": "硅基流动"
-    },
-    "deepseek-ai/DeepSeek-R1-Distill-Llama-8B": {
-        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
-        "api_key": "SILICONFLOW_KEY_REVOKED",
-        "provider": "硅基流动"
-    },
     "Qwen/Qwen2.5-7B-Instruct": {
-        "api_url": "https://api.siliconflow.cn/v1/chat/completions",
-        "api_key": "SILICONFLOW_KEY_REVOKED",
-        "provider": "硅基流动"
-    },
-    "THUDM/glm-4-9b-chat": {
         "api_url": "https://api.siliconflow.cn/v1/chat/completions",
         "api_key": "SILICONFLOW_KEY_REVOKED",
         "provider": "硅基流动"
