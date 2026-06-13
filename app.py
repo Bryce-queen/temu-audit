@@ -1060,16 +1060,20 @@ input[type="checkbox"]:checked::after {
 .btn-ghost.upload:hover { border-color: var(--primary); color: var(--primary); }
 
 .img-preview {
-  display: flex; gap: 8px; padding: 8px 16px; overflow-x: auto;
-  background: var(--bg); border-bottom: var(--border);
+  display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 0;
 }
 .img-thumb {
-  flex-shrink: 0; width: 56px; height: 56px; border-radius: 8px;
+  flex-shrink: 0; width: 48px; height: 48px; border-radius: 6px;
   overflow: hidden; cursor: pointer; border: 2px solid transparent;
-  transition: border-color .15s;
+  transition: border-color .15s; position: relative;
 }
 .img-thumb:hover { border-color: var(--primary); }
 .img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.img-thumb .img-rm {
+  position: absolute; top: 2px; right: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: rgba(0,0,0,.6); color: #fff;
+  font-size: 10px; line-height: 16px; text-align: center; cursor: pointer;
+}
 
 .theme-toggle {
   background: transparent; border: var(--border); color: var(--text-secondary);
@@ -1182,9 +1186,12 @@ input[type="checkbox"]:checked::after {
 
 /* ---- Input ---- */
 .input-area {
-  display: flex; padding: 16px 18px; gap: 10px;
+  display: flex; flex-direction: column; padding: 12px 18px 16px; gap: 8px;
   background: var(--sidebar); border-top: var(--border);
-  align-items: flex-end; transition: background .3s;
+  transition: background .3s;
+}
+.input-row {
+  display: flex; gap: 10px; align-items: flex-end;
 }
 .input-area textarea {
   flex: 1; padding: 12px 16px; border-radius: 12px;
@@ -1196,6 +1203,15 @@ input[type="checkbox"]:checked::after {
 }
 .input-area textarea:focus { border-color: var(--primary); }
 .input-area textarea::placeholder { color: var(--text-muted); }
+
+.img-btn {
+  width: 46px; height: 46px; border-radius: 12px; border: var(--border);
+  background: var(--input-bg); color: var(--text-muted);
+  font-size: 20px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: all .2s; flex-shrink: 0;
+}
+.img-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--hover); }
 
 .send-btn {
   padding: 12px 28px; border-radius: 12px; border: none;
@@ -1377,14 +1393,11 @@ input[type="checkbox"]:checked::after {
     <label><input type="checkbox" id="ragToggle"> RAG</label>
     <input type="file" id="fileInput" multiple accept=".txt,.md,.pdf,.docx,.xlsx,.xls" style="display:none" onchange="uploadFiles(this.files)">
     <button class="btn-ghost upload" onclick="document.getElementById('fileInput').click()">上传</button>
-    <input type="file" id="imgInput" multiple accept="image/*" style="display:none" onchange="uploadImages(this.files)">
-    <button class="btn-ghost upload" onclick="document.getElementById('imgInput').click()" title="上传图片给视觉模型识别">图片</button>
     <button class="btn-ghost" onclick="showDocs()">知识库</button>
     <button class="btn-ghost" onclick="exportChat()" title="导出对话">导出</button>
     <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">&#9681;</button>
     <a class="nav-link" href="/audit">诊断</a>
   </div>
-  <div id="imgPreview" class="img-preview" style="display:none"></div>
   <div class="chat" id="chat">
     <div class="empty-state">
       <h3>AI Chat</h3>
@@ -1394,8 +1407,13 @@ input[type="checkbox"]:checked::after {
     </div>
   </div>
   <div class="input-area">
-    <textarea id="promptIn" placeholder="输入消息，Enter 发送，Shift+Enter 换行" rows="1" onkeydown="handleKey(event)"></textarea>
-    <button class="send-btn" id="sendBtn" onclick="send()" disabled>发送</button>
+    <div id="imgPreview" class="img-preview" style="display:none"></div>
+    <div class="input-row">
+      <textarea id="promptIn" placeholder="输入消息，Enter 发送，Shift+Enter 换行" rows="1" onkeydown="handleKey(event)"></textarea>
+      <input type="file" id="imgInput" multiple accept="image/*" style="display:none" onchange="uploadImages(this.files)">
+      <button class="img-btn" onclick="document.getElementById('imgInput').click()" title="上传图片">+</button>
+      <button class="send-btn" id="sendBtn" onclick="send()" disabled>发送</button>
+    </div>
   </div>
 </div>
 <script>
