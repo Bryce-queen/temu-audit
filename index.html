@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SmartCS - AI 智能客服系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0a0a16;color:#e0e0e0;line-height:1.7}
+.container{max-width:1100px;margin:0 auto;padding:0 24px}
+.hero{text-align:center;padding:100px 0 60px;background:linear-gradient(180deg,#0f1a35 0%,#0a0a16 100%)}
+.hero h1{font-size:52px;font-weight:800;background:linear-gradient(135deg,#4fc3f7,#7c4dff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:16px}
+.hero p{font-size:20px;color:#8892b0;max-width:600px;margin:0 auto 32px}
+.hero .cta{display:inline-flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 36px;border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:all .25s}
+.btn-primary{background:linear-gradient(135deg,#4fc3f7,#7c4dff);color:#fff;border:none}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(79,195,247,.3)}
+.btn-outline{border:2px solid #4fc3f7;color:#4fc3f7;background:transparent}
+.btn-outline:hover{background:rgba(79,195,247,.1)}
+.price-badge{display:inline-block;background:rgba(124,77,255,.15);border:1px solid rgba(124,77,255,.3);color:#b39ddb;padding:4px 14px;border-radius:20px;font-size:13px;margin-top:24px}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:28px;padding:80px 0}
+.feature-card{background:#12122a;border:1px solid #1e1e3a;border-radius:16px;padding:32px 28px;transition:border-color .25s}
+.feature-card:hover{border-color:#4fc3f7}
+.feature-card .icon{font-size:36px;margin-bottom:16px}
+.feature-card h3{font-size:18px;margin-bottom:10px;color:#ccd6f6}
+.feature-card p{color:#8892b0;font-size:14px}
+.scenarios{padding:60px 0}
+.scenarios h2{text-align:center;font-size:32px;margin-bottom:40px;color:#ccd6f6}
+.scenario-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+.scenario-card{background:#12122a;border:1px solid #1e1e3a;border-radius:16px;padding:28px;display:flex;align-items:flex-start;gap:16px}
+.scenario-card .emoji{font-size:32px;flex-shrink:0}
+.scenario-card h4{font-size:16px;margin-bottom:6px}
+.scenario-card p{color:#8892b0;font-size:13px}
+.pricing{padding:80px 0;text-align:center}
+.pricing h2{font-size:32px;margin-bottom:40px;color:#ccd6f6}
+.price-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;max-width:900px;margin:0 auto}
+.price-card{background:#12122a;border:1px solid #1e1e3a;border-radius:16px;padding:36px 28px;text-align:center}
+.price-card.featured{border-color:#7c4dff;position:relative}
+.price-card.featured::before{content:'推荐';position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#4fc3f7,#7c4dff);color:#fff;padding:4px 16px;border-radius:12px;font-size:12px;font-weight:600}
+.price-card .price{font-size:36px;font-weight:800;margin:16px 0 8px}
+.price-card .period{color:#667;font-size:14px}
+.price-card ul{list-style:none;text-align:left;margin:24px 0;padding:0}
+.price-card ul li{padding:6px 0;font-size:14px;color:#8892b0}
+.price-card ul li::before{content:'✓ ';color:#4fc3f7}
+.footer{text-align:center;padding:40px 0;color:#555;font-size:13px;border-top:1px solid #1a1a30}
+.contact{padding:60px 0;text-align:center}
+.contact h2{font-size:28px;margin-bottom:16px;color:#ccd6f6}
+.contact p{color:#8892b0;margin-bottom:24px}
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="container">
+    <h1>SmartCS</h1>
+    <p>上传你的产品文档，5 分钟搭建专属 AI 客服。本地私有化部署，数据不外泄，成本仅为 SaaS 方案的 1/10。</p>
+    <div class="cta">
+      <a href="https://locations-adaptation-constraint-economies.trycloudflare.com" class="btn btn-primary">立即体验 Demo</a>
+      <a href="#pricing" class="btn btn-outline">查看定价</a>
+    </div>
+    <div class="price-badge">基础版 ¥499 起 · 月费 ¥99 · 私有化部署</div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="features">
+    <div class="feature-card">
+      <div class="icon">📄</div>
+      <h3>一键上传知识库</h3>
+      <p>支持 PDF、Word、Excel、TXT 文档，自动解析分块，向量化存储。上传完成即可开始问答。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🧠</div>
+      <h3>多模型自由切换</h3>
+      <p>内置 5 个本地模型 + 云端 GLM。轻量问题本地跑（零成本），复杂问题云端兜底。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🎭</div>
+      <h3>6 大场景预设</h3>
+      <p>客服、合同审查、文档问答、翻译、简历匹配、通用助手——切换即用，无需调 prompt。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🔒</div>
+      <h3>数据完全私有</h3>
+      <p>全链路本地运行，文档不离开你的电脑。无需联网即可使用本地模型。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">💬</div>
+      <h3>多轮对话记忆</h3>
+      <p>自动维护对话历史，支持多会话管理。客户可以随时回到之前的咨询继续聊。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">⚡</div>
+      <h3>5 分钟上线</h3>
+      <p>下载即用，无需配置服务器。Mac M2/8GB 即可运行全部功能。</p>
+    </div>
+  </div>
+
+  <div class="scenarios" id="scenarios">
+    <h2>适用场景</h2>
+    <div class="scenario-grid">
+      <div class="scenario-card">
+        <div class="emoji">🛒</div>
+        <div><h4>电商客服</h4><p>上传商品 FAQ、退换货政策、尺码表。客户自助查询，减少 70% 重复咨询。</p></div>
+      </div>
+      <div class="scenario-card">
+        <div class="emoji">🏢</div>
+        <div><h4>企业知识库</h4><p>上传员工手册、流程文档、技术 Wiki。员工自然语言检索，新人上手快 3 倍。</p></div>
+      </div>
+      <div class="scenario-card">
+        <div class="emoji">⚖️</div>
+        <div><h4>合同审查</h4><p>上传合同 PDF，AI 自动标注风险条款、不平等条约、遗漏事项。</p></div>
+      </div>
+      <div class="scenario-card">
+        <div class="emoji">🏫</div>
+        <div><h4>教育辅导</h4><p>上传教材/题库，学生随时问答。支持知识点检索和错题解析。</p></div>
+      </div>
+      <div class="scenario-card">
+        <div class="emoji">💼</div>
+        <div><h4>简历筛选</h4><p>上传 JD + 候选人简历，自动匹配打分、标记优劣势。</p></div>
+      </div>
+      <div class="scenario-card">
+        <div class="emoji">🌍</div>
+        <div><h4>翻译服务</h4><p>中英双向翻译，专业文档一键转换。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pricing" id="pricing">
+    <h2>定价方案</h2>
+    <div class="price-cards">
+      <div class="price-card">
+        <h3>基础版</h3>
+        <div class="price">¥499</div>
+        <div class="period">一次性 · 买断</div>
+        <ul>
+          <li>本地 5 个模型</li>
+          <li>RAG 知识库</li>
+          <li>6 个场景预设</li>
+          <li>对话历史</li>
+          <li>1 个知识库</li>
+        </ul>
+        <a href="https://locations-adaptation-constraint-economies.trycloudflare.com" class="btn btn-outline" style="width:100%">免费试用</a>
+      </div>
+      <div class="price-card featured">
+        <h3>标准版</h3>
+        <div class="price">¥999</div>
+        <div class="period">一次性 · 买断</div>
+        <ul>
+          <li>基础版全部功能</li>
+          <li>云端 GLM 双模型</li>
+          <li>不限知识库数量</li>
+          <li>API 接口开放</li>
+          <li>微信/钉钉接入</li>
+        </ul>
+        <a href="https://locations-adaptation-constraint-economies.trycloudflare.com" class="btn btn-primary" style="width:100%">立即体验</a>
+      </div>
+      <div class="price-card">
+        <h3>企业版</h3>
+        <div class="price">¥2,999</div>
+        <div class="period">一次性 · 买断</div>
+        <ul>
+          <li>标准版全部功能</li>
+          <li>私有化服务器部署</li>
+          <li>定制场景开发</li>
+          <li>7x12 技术支持</li>
+          <li>源码交付</li>
+        </ul>
+        <a href="#contact" class="btn btn-outline" style="width:100%">联系咨询</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="contact" id="contact">
+    <h2>开始搭建你的 AI 客服</h2>
+    <p>现在就打开 Demo，上传一份产品 FAQ，亲自体验。</p>
+    <a href="https://locations-adaptation-constraint-economies.trycloudflare.com" class="btn btn-primary">打开 Demo</a>
+  </div>
+</div>
+
+<div class="footer">
+  SmartCS · 本地 AI 客服系统 · 数据私有 · 零月费起
+</div>
+</body>
+</html>
