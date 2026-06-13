@@ -2195,6 +2195,13 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('/sw.js').catch(()=>{});
 }
 </script>
+<script src="https://lf-cdn.coze.cn/obj/coze-web-sdk/chat/1.2.0-beta.20/coze-chat-widget.js"></script>
+<script>
+new CozeWebSDK.WebChatClient({
+  config: { bot_id: '7650995775270404159' },
+  auth: { type: 'token', token: 'COZE_TOKEN_REVOKED' }
+});
+</script>
 </body>
 </html>"""
 
