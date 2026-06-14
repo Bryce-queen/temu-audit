@@ -1,7 +1,7 @@
 (() => {
 if (document.getElementById('ai-chat-widget')) return;
 const d = document;
-const API = 'https://lingh.pythonanywhere.com';
+const API = new URL(document.currentScript?.src || window.location.href).origin;
 let sid = 'widget_' + Date.now();
 let model = 'cloud:Qwen/Qwen3-8B';
 let isOpen = false, isStreaming = false;

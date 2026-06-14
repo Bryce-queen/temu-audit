@@ -4,13 +4,30 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python app.py
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 180
+    healthCheckPath: /healthz
     envVars:
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: SECRET_KEY
+        generateValue: true
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_PUBLISHABLE_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      - key: ZHIPU_API_KEY
+        sync: false
+      - key: SILICONFLOW_API_KEY
+        sync: false
+      - key: COZE_BOT_ID
+        sync: false
+      - key: COZE_TOKEN
+        sync: false
+      - key: AUDIT_PRICE_CENTS
+        value: 499
+      - key: AUDIT_PRICE_CURRENCY
+        value: usd
       - key: PUBLIC_DOMAIN
         value: https://temu-audit.onrender.com

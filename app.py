@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string, Response, stream_with_context
+from flask import Flask, request, jsonify, render_template_string, Response, stream_with_context, session, redirect, url_for
 import requests
 import json
 import os
@@ -7,10 +7,13 @@ import re
 import hashlib
 import uuid
 import stripe
+import hmac
+import html as html_lib
 from datetime import datetime
 import PyPDF2
 from docx import Document
 import openpyxl
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
@@ -19,6 +22,75 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
 STRIPE_PUBLISHABLE = os.environ.get("STRIPE_PUBLISHABLE_KEY", "pk_test_placeholder")
 PUBLIC_DOMAIN = os.environ.get("PUBLIC_DOMAIN", "http://localhost:8080")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+AUDIT_PRICE_CENTS = int(os.environ.get("AUDIT_PRICE_CENTS", "499"))
+AUDIT_PRICE_CURRENCY = os.environ.get("AUDIT_PRICE_CURRENCY", "usd")
+COZE_BOT_ID = os.environ.get("COZE_BOT_ID", "")
+COZE_TOKEN = os.environ.get("COZE_TOKEN", "")
+app.secret_key = os.environ.get("SECRET_KEY") or ADMIN_TOKEN or os.urandom(32)
+
+PUBLIC_PATHS = {"/audit", "/en/audit", "/api/stripe/webhook", "/manifest.json", "/sw.js", "/favicon.ico", "/healthz", "/admin/login"}
+PUBLIC_PREFIXES = ("/api/audit/",)
+
+
+def _admin_authorized():
+    if not ADMIN_TOKEN:
+        return True
+    if session.get("admin_authenticated") is True:
+        return True
+    token = request.headers.get("X-Admin-Token") or request.args.get("admin_token", "")
+    return hmac.compare_digest(token, ADMIN_TOKEN)
+
+
+@app.before_request
+def require_admin_for_private_routes():
+    if not ADMIN_TOKEN or request.method == "OPTIONS":
+        return None
+    if request.path in PUBLIC_PATHS or request.path.startswith(PUBLIC_PREFIXES):
+        return None
+    if _admin_authorized():
+        return None
+    if request.method == "GET" and "text/html" in request.headers.get("Accept", ""):
+        return redirect(url_for("admin_login", next=request.full_path))
+    return jsonify({"error": "admin token required"}), 401
+
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin Login</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;color:#222;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{width:min(360px,calc(100vw - 32px));background:#fff;border-radius:14px;padding:24px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+h1{font-size:22px;margin:0 0 8px}.hint{font-size:13px;color:#666;margin:0 0 18px;line-height:1.6}
+input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:12px}
+button{width:100%;border:0;border-radius:8px;background:#111;color:#fff;padding:12px;font-size:14px;font-weight:600;cursor:pointer}
+.err{color:#d52b1e;font-size:13px;margin-bottom:12px}
+</style></head><body><form class="card" method="post">
+<h1>后台登录</h1><p class="hint">输入部署环境变量中的 ADMIN_TOKEN。</p>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<input type="password" name="token" placeholder="ADMIN_TOKEN" autofocus>
+<input type="hidden" name="next" value="{{ next_url }}">
+<button type="submit">登录</button>
+</form></body></html>"""
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if not ADMIN_TOKEN:
+        return redirect(request.args.get("next") or url_for("index"))
+    next_url = request.values.get("next") or url_for("index")
+    if request.method == "POST":
+        token = request.form.get("token", "")
+        if hmac.compare_digest(token, ADMIN_TOKEN):
+            session["admin_authenticated"] = True
+            return redirect(next_url)
+        return render_template_string(LOGIN_HTML, error="Token 不正确", next_url=next_url), 401
+    return render_template_string(LOGIN_HTML, error="", next_url=next_url)
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin_authenticated", None)
+    return redirect(url_for("admin_login"))
 
 @app.after_request
 def add_ngrok_header(response):
@@ -40,21 +112,37 @@ CLOUD_MODELS = {
     # 智谱 AI
     "glm-4.5-air": {
         "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-        "api_key": "ZHIPU_KEY_REVOKED",
+        "api_key_env": "ZHIPU_API_KEY",
         "provider": "智谱"
     },
     # 硅基流动（免费，OpenAI 兼容）
     "Qwen/Qwen3-8B": {
         "api_url": "https://api.siliconflow.cn/v1/chat/completions",
-        "api_key": "SILICONFLOW_KEY_REVOKED",
+        "api_key_env": "SILICONFLOW_API_KEY",
         "provider": "硅基流动"
     },
     "Qwen/Qwen2.5-7B-Instruct": {
         "api_url": "https://api.siliconflow.cn/v1/chat/completions",
-        "api_key": "SILICONFLOW_KEY_REVOKED",
+        "api_key_env": "SILICONFLOW_API_KEY",
         "provider": "硅基流动"
     },
 }
+
+
+def _cloud_api_key(cfg):
+    return os.environ.get(cfg.get("api_key_env", ""), "")
+
+
+def coze_widget_html():
+    if not COZE_BOT_ID or not COZE_TOKEN:
+        return ""
+    return f'''<script src="https://lf-cdn.coze.cn/obj/coze-web-sdk/chat/1.2.0-beta.20/coze-chat-widget.js"></script>
+<script>
+new CozeWebSDK.WebChatClient({{
+  config: {{ bot_id: {json.dumps(COZE_BOT_ID)} }},
+  auth: {{ type: 'token', token: {json.dumps(COZE_TOKEN)} }}
+}});
+</script>'''
 
 # ---- 场景预设 ----
 SCENE_PROMPTS = {
@@ -271,9 +359,10 @@ def models():
         model_list = [m["name"] for m in r.json().get("models", [])]
     except:
         pass
-    # 添加云端模型
-    for name in CLOUD_MODELS:
-        model_list.append(f"{CLOUD_PREFIX}{name}")
+    # 添加已配置 API Key 的云端模型
+    for name, cfg in CLOUD_MODELS.items():
+        if _cloud_api_key(cfg):
+            model_list.append(f"{CLOUD_PREFIX}{name}")
     return jsonify(model_list)
 
 @app.route("/sessions/search")
@@ -494,19 +583,22 @@ def upload():
     f = request.files['file']
     if f.filename == '':
         return jsonify({"error": "文件名为空"}), 400
-    ext = os.path.splitext(f.filename)[1].lower()
+    safe_name = secure_filename(f.filename)
+    if not safe_name:
+        return jsonify({"error": "文件名无效"}), 400
+    ext = os.path.splitext(safe_name)[1].lower()
     if ext not in ['.txt', '.md', '.pdf', '.docx', '.xlsx', '.xls']:
         return jsonify({"error": f"不支持的文件类型: {ext}\n支持: txt, md, pdf, docx, xlsx"}), 400
 
-    filepath = os.path.join(UPLOAD_DIR, f.filename)
+    filepath = os.path.join(UPLOAD_DIR, safe_name)
     counter = 1
-    base, e = os.path.splitext(f.filename)
+    base, e = os.path.splitext(safe_name)
     while os.path.exists(filepath):
         filepath = os.path.join(UPLOAD_DIR, f"{base}_{counter}{e}")
         counter += 1
     f.save(filepath)
 
-    count = add_to_kb(f.filename, filepath)
+    count = add_to_kb(os.path.basename(filepath), filepath)
     return jsonify({"ok": True, "filename": os.path.basename(filepath), "chunks": count})
 
 @app.route("/upload-image", methods=["POST"])
@@ -516,7 +608,10 @@ def upload_image():
     f = request.files['file']
     if f.filename == '':
         return jsonify({"error": "文件名为空"}), 400
-    ext = os.path.splitext(f.filename)[1].lower()
+    safe_name = secure_filename(f.filename)
+    if not safe_name:
+        return jsonify({"error": "文件名无效"}), 400
+    ext = os.path.splitext(safe_name)[1].lower()
     if ext not in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']:
         return jsonify({"error": f"不支持的图片格式: {ext}"}), 400
     import base64
@@ -526,7 +621,7 @@ def upload_image():
                 '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp'}
     mime = mime_map.get(ext, 'image/jpeg')
     return jsonify({
-        "ok": True, "filename": f.filename,
+        "ok": True, "filename": safe_name,
         "base64": b64, "mime": mime,
         "data_url": f"data:{mime};base64,{b64}"
     })
@@ -752,6 +847,11 @@ def _get_cloud_config(model):
     cfg = CLOUD_MODELS.get(model)
     if not cfg:
         raise Exception(f"未知云端模型: {model}")
+    api_key = _cloud_api_key(cfg)
+    if not api_key:
+        raise Exception(f"模型 {model} 未配置 API Key")
+    cfg = dict(cfg)
+    cfg["api_key"] = api_key
     return cfg
 
 def _chat_cloud(model, prompt, history_msgs, docs, system_prompt):
@@ -1558,7 +1658,7 @@ function renameSession(div,sid){
   if(renameInput) cancelRename();
   const span=div.querySelector('.sess-title');
   if(!span) return;
-  const oldTitle=span.textContent.replace(/\s*P$/,'').trim();
+      const oldTitle=span.textContent.replace(/\\s*P$/,'').trim();
   const inp=document.createElement('input');
   inp.value=oldTitle;
   inp.style.cssText='background:var(--accent-bg);border:1px solid var(--primary);color:var(--text);padding:4px 8px;border-radius:6px;width:100%;font-size:13px;outline:none';
@@ -2195,13 +2295,6 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('/sw.js').catch(()=>{});
 }
 </script>
-<script src="https://lf-cdn.coze.cn/obj/coze-web-sdk/chat/1.2.0-beta.20/coze-chat-widget.js"></script>
-<script>
-new CozeWebSDK.WebChatClient({
-  config: { bot_id: '7650995775270404159' },
-  auth: { type: 'token', token: 'COZE_TOKEN_REVOKED' }
-});
-</script>
 </body>
 </html>"""
 
@@ -2367,36 +2460,25 @@ function renderPreview(preview){
   h += `<div class="pay-wall" id="payWall">
     <h3>解锁完整诊断报告</h3>
     <p>含合规扫描、关键词矩阵、竞品定位、优化清单</p>
-    <div class="price">￥29</div>
-    <button class="pay-btn" onclick="showQR()">微信支付 · 解锁报告</button>
+    <div class="price">$4.99</div>
+    <button class="pay-btn" onclick="startCheckout()">Stripe 支付 · 解锁报告</button>
     <p style="font-size:12px;color:#999;margin-top:8px">付款后即时解锁，7天无理由退款</p>
   </div></div>`;
   return h;
 }
 
-async function showQR(){
+async function startCheckout(){
   if(!currentReportId) return;
   const wall = document.getElementById('payWall');
-  wall.innerHTML = '<div class="loading"><div class="spinner"></div><p>生成支付二维码...</p></div>';
+  wall.innerHTML = '<div class="loading"><div class="spinner"></div><p>正在跳转安全支付...</p></div>';
   try{
     const res = await fetch('/api/audit/report/'+currentReportId+'/pay', {method:'POST'});
     const data = await res.json();
-    wall.innerHTML = `
-      <h3>微信扫码支付</h3>
-      <img src="${data.qr_url}" style="width:200px;height:200px;margin:16px auto;display:block;border-radius:12px" alt="支付二维码">
-      <p style="font-size:13px;color:#666;margin:8px 0">订单号：${data.order_no}</p>
-      <div class="price">￥29.00</div>
-      <button class="pay-btn" onclick="simulatePay()" style="margin-top:12px">我已完成支付</button>
-      <p style="font-size:12px;color:#999;margin-top:8px">支付成功后点击上方按钮即可解锁</p>`;
+    if(data.checkout_url){ window.location.href = data.checkout_url; return; }
+    wall.innerHTML = '<p style="color:red">'+(data.error || '创建支付失败，请重试')+'</p>';
   }catch(err){
-    wall.innerHTML = '<p style="color:red">生成二维码失败，请重试</p>';
+    wall.innerHTML = '<p style="color:red">创建支付失败，请重试</p>';
   }
-}
-
-async function simulatePay(){
-  document.querySelector('#payWall .pay-btn').disabled = true;
-  document.querySelector('#payWall .pay-btn').textContent = '验证中...';
-  await unlock();
 }
 
 async function unlock(){
@@ -2404,15 +2486,29 @@ async function unlock(){
   document.querySelector('.pay-btn').disabled = true;
   document.querySelector('.pay-btn').textContent = '解锁中...';
   try{
-    const res = await fetch('/api/audit/report/'+currentReportId+'/unlock');
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('session_id');
+    const suffix = sid ? '?session_id='+encodeURIComponent(sid) : '';
+    const res = await fetch('/api/audit/report/'+currentReportId+'/unlock'+suffix);
     const data = await res.json();
+    if(data.error){ alert(data.error); return; }
     document.getElementById('result').innerHTML = renderFullReport(data.full_report) + renderOptimizedListing(data.optimized_listing);
   }catch(err){
     alert('解锁失败，请重试');
     document.querySelector('.pay-btn').disabled = false;
-    document.querySelector('.pay-btn').textContent = '微信支付 · 解锁报告';
+    document.querySelector('.pay-btn').textContent = 'Stripe 支付 · 解锁报告';
   }
 }
+
+(async function checkStripeReturn(){
+  const params = new URLSearchParams(window.location.search);
+  const sid = params.get('session_id');
+  const rid = params.get('report_id');
+  if(sid && rid){
+    currentReportId = rid;
+    await unlock();
+  }
+})();
 
 function renderFullReport(report){
   let h = '<div class="card"><h2 style="color:#07c160">✅ 完整诊断报告</h2>';
@@ -2445,10 +2541,10 @@ function downloadPDF(){
 
 function renderOptimizedListing(text){
   if(!text) return '';
-  const title = text.match(/【优化标题】\s*([\s\S]*?)(?=【优化卖点】|$)/);
-  const bullets = text.match(/【优化卖点】\s*([\s\S]*?)(?=【建议售价】|$)/);
-  const price = text.match(/【建议售价】\s*([\s\S]*?)(?=【优化说明】|$)/);
-  const note = text.match(/【优化说明】\s*([\s\S]*?)$/);
+  const title = text.match(/【优化标题】\\s*([\\s\\S]*?)(?=【优化卖点】|$)/);
+  const bullets = text.match(/【优化卖点】\\s*([\\s\\S]*?)(?=【建议售价】|$)/);
+  const price = text.match(/【建议售价】\\s*([\\s\\S]*?)(?=【优化说明】|$)/);
+  const note = text.match(/【优化说明】\\s*([\\s\\S]*?)$/);
 
   let h = '<div class="card" style="border:2px solid #07c160;margin-top:20px"><h2 style="color:#07c160">🚀 优化版 Listing（可直接上架）</h2>';
 
@@ -2461,7 +2557,7 @@ function renderOptimizedListing(text){
     const lines = bullets[1].trim().split('\n').filter(l=>l.trim().startsWith('-'));
     h += '<div style="margin:12px 0"><h4 style="color:#07c160;margin:0 0 8px">卖点优化</h4><ul style="padding-left:20px">';
     for(const line of lines){
-      h += `<li style="margin:6px 0;font-size:14px;color:#333">${line.replace(/^-\s*/, '')}</li>`;
+      h += `<li style="margin:6px 0;font-size:14px;color:#333">${line.replace(/^-\\s*/, '')}</li>`;
     }
     h += '</ul></div>';
   }
@@ -2477,13 +2573,6 @@ function renderOptimizedListing(text){
   h += '<p style="font-size:12px;color:#999;text-align:center;margin-top:8px">由 AI 基于诊断结果自动生成，请人工复核后上架</p></div>';
   return h;
 }
-</script>
-<script src="https://lf-cdn.coze.cn/obj/coze-web-sdk/chat/1.2.0-beta.20/coze-chat-widget.js"></script>
-<script>
-new CozeWebSDK.WebChatClient({
-  config: { bot_id: '7650995775270404159' },
-  auth: { type: 'token', token: 'COZE_TOKEN_REVOKED' }
-});
 </script>
 </body>
 </html>"""
@@ -2666,31 +2755,21 @@ async function showQR(){
     if(data.checkout_url){
       // Stripe checkout available — redirect
       window.location.href = data.checkout_url;
-    }else if(data.fallback && data.qr_url){
-      // Fallback to simulated payment
-      wall.innerHTML = `
-        <h3>Scan to Pay</h3>
-        <img src="${data.qr_url}" style="width:200px;height:200px;margin:16px auto;display:block;border-radius:12px" alt="Payment QR Code">
-        <p style="font-size:13px;color:#666;margin:8px 0">Order No: ${data.order_no}</p>
-        <div class="price">$4.99</div>
-        <button class="pay-btn" onclick="simulatePay()" style="margin-top:12px">I've Completed Payment</button>
-        <p style="font-size:12px;color:#999;margin-top:8px">Click the button above after completing payment to unlock</p>`;
+    }else{
+      wall.innerHTML = '<p style="color:red">'+(data.error || 'Failed to initiate payment. Please retry.')+'</p>';
     }
   }catch(err){
     wall.innerHTML = '<p style="color:red">Failed to initiate payment. Please retry.</p>';
   }
 }
 
-async function simulatePay(){
-  document.querySelector('#payWall .pay-btn').disabled = true;
-  document.querySelector('#payWall .pay-btn').textContent = 'Verifying...';
-  await unlock();
-}
-
 async function unlock(){
   if(!currentReportId) return;
   try{
-    const res = await fetch('/api/audit/report/'+currentReportId+'/unlock');
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('session_id');
+    const suffix = sid ? '?session_id='+encodeURIComponent(sid) : '';
+    const res = await fetch('/api/audit/report/'+currentReportId+'/unlock'+suffix);
     const data = await res.json();
     if(data.error){ alert(data.error); return; }
     document.getElementById('result').innerHTML = renderFullReport(data.full_report) + renderOptimizedListing(data.optimized_listing);
@@ -2703,9 +2782,11 @@ async function unlock(){
 (async function checkStripeReturn(){
   const params = new URLSearchParams(window.location.search);
   const sid = params.get('session_id');
-  if(sid && currentReportId){
+  const rid = params.get('report_id');
+  if(sid && rid){
+    currentReportId = rid;
     try{
-      const res = await fetch('/api/audit/report/'+currentReportId+'/unlock');
+      const res = await fetch('/api/audit/report/'+currentReportId+'/unlock?session_id='+encodeURIComponent(sid));
       const data = await res.json();
       if(!data.error){
         document.getElementById('result').innerHTML = renderFullReport(data.full_report) + renderOptimizedListing(data.optimized_listing);
@@ -2745,10 +2826,10 @@ function downloadPDF(){
 
 function renderOptimizedListing(text){
   if(!text) return '';
-  const title = text.match(/【优化标题】\s*([\s\S]*?)(?=【优化卖点】|$)/);
-  const bullets = text.match(/【优化卖点】\s*([\s\S]*?)(?=【建议售价】|$)/);
-  const price = text.match(/【建议售价】\s*([\s\S]*?)(?=【优化说明】|$)/);
-  const note = text.match(/【优化说明】\s*([\s\S]*?)$/);
+  const title = text.match(/【优化标题】\\s*([\\s\\S]*?)(?=【优化卖点】|$)/);
+  const bullets = text.match(/【优化卖点】\\s*([\\s\\S]*?)(?=【建议售价】|$)/);
+  const price = text.match(/【建议售价】\\s*([\\s\\S]*?)(?=【优化说明】|$)/);
+  const note = text.match(/【优化说明】\\s*([\\s\\S]*?)$/);
 
   let h = '<div class="card" style="border:2px solid #07c160;margin-top:20px"><h2 style="color:#07c160">Optimized Listing (Ready to Publish)</h2>';
 
@@ -2762,7 +2843,7 @@ function renderOptimizedListing(text){
 ').filter(l=>l.trim().startsWith('-'));
     h += '<div style="margin:12px 0"><h4 style="color:#07c160;margin:0 0 8px">Optimized Bullet Points</h4><ul style="padding-left:20px">';
     for(const line of lines){
-      h += `<li style="margin:6px 0;font-size:14px;color:#333">${line.replace(/^-\s*/, '')}</li>`;
+      h += `<li style="margin:6px 0;font-size:14px;color:#333">${line.replace(/^-\\s*/, '')}</li>`;
     }
     h += '</ul></div>';
   }
@@ -2778,13 +2859,6 @@ function renderOptimizedListing(text){
   h += '<p style="font-size:12px;color:#999;text-align:center;margin-top:8px">Auto-generated by AI. Please review before publishing.</p></div>';
   return h;
 }
-</script>
-<script src="https://lf-cdn.coze.cn/obj/coze-web-sdk/chat/1.2.0-beta.20/coze-chat-widget.js"></script>
-<script>
-new CozeWebSDK.WebChatClient({
-  config: { bot_id: '7650995775270404159' },
-  auth: { type: 'token', token: 'COZE_TOKEN_REVOKED' }
-});
 </script>
 </body>
 </html>"""
@@ -2824,11 +2898,11 @@ def _llm_cloud_sync(prompt, max_tokens=1200):
 
 @app.route("/audit")
 def audit_page():
-    return render_template_string(AUDIT_HTML)
+    return render_template_string(AUDIT_HTML.replace("</body>", coze_widget_html() + "</body>"))
 
 @app.route("/en/audit")
 def audit_en_page():
-    return render_template_string(AUDIT_EN_HTML)
+    return render_template_string(AUDIT_EN_HTML.replace("</body>", coze_widget_html() + "</body>"))
 
 @app.route("/api/audit/generate", methods=["POST"])
 def audit_generate():
@@ -2893,6 +2967,19 @@ def audit_unlock(report_id):
     r = db.execute("SELECT * FROM audit_reports WHERE id=?", [report_id]).fetchone()
     if not r:
         return jsonify({"error":"Report not found"}), 404
+    if not r["unlocked"]:
+        session_id = request.args.get("session_id", "")
+        if session_id:
+            try:
+                session = stripe.checkout.Session.retrieve(session_id)
+                if session.get("payment_status") == "paid" and session.get("metadata", {}).get("report_id") == report_id:
+                    db.execute("UPDATE audit_reports SET unlocked=1 WHERE id=?", [report_id])
+                    db.commit()
+                    r = db.execute("SELECT * FROM audit_reports WHERE id=?", [report_id]).fetchone()
+            except Exception:
+                pass
+    if not r["unlocked"]:
+        return jsonify({"error":"Payment required"}), 402
 
     full_report = json.loads(r["full_report"])
     optimized = r["optimized_listing"]
@@ -2927,9 +3014,7 @@ $<价格，考虑竞品区间>
 【优化说明】
 <2-3句话说明相比原版的改进之处>"""
         optimized = _llm_cloud_sync(opt_prompt)
-        db.execute("UPDATE audit_reports SET optimized_listing=?, unlocked=1 WHERE id=?", [optimized, report_id])
-    else:
-        db.execute("UPDATE audit_reports SET unlocked=1 WHERE id=?", [report_id])
+        db.execute("UPDATE audit_reports SET optimized_listing=? WHERE id=?", [optimized, report_id])
 
     db.commit()
     return jsonify({"full_report": full_report, "optimized_listing": optimized})
@@ -2937,6 +3022,8 @@ $<价格，考虑竞品区间>
 @app.route("/orders")
 @app.route("/en/orders")
 def orders_page():
+    if not _admin_authorized():
+        return jsonify({"error": "admin token required"}), 401
     lang = "en" if request.path.startswith("/en/") else "zh"
     db = get_db()
     rows = db.execute("SELECT * FROM audit_reports ORDER BY created_at DESC").fetchall()
@@ -2978,7 +3065,12 @@ th{{background:#f0f0f0;font-weight:600}}
     for r in rows:
         st = f'<span class="status status-paid">{status_paid}</span>' if r["unlocked"] else f'<span class="status status-locked">{status_locked}</span>'
         opt = f'<span class="status status-paid">{opt_yes}</span>' if r["optimized_listing"] else f'<span class="status status-locked">{opt_no}</span>'
-        html += f"<tr><td>{r['id']}</td><td>{r['title'][:30]}</td><td>{r['category']}</td><td>${r['price']}</td><td>{st}</td><td>{opt}</td><td>{r['created_at'][:19]}</td></tr>"
+        report_id = html_lib.escape(str(r["id"]))
+        product_title = html_lib.escape(str(r["title"] or "")[:30])
+        category = html_lib.escape(str(r["category"] or ""))
+        price = html_lib.escape(str(r["price"] or ""))
+        created_at = html_lib.escape(str(r["created_at"] or "")[:19])
+        html += f"<tr><td>{report_id}</td><td>{product_title}</td><td>{category}</td><td>${price}</td><td>{st}</td><td>{opt}</td><td>{created_at}</td></tr>"
     html += "</table></body></html>"
     return html
 
@@ -2991,22 +3083,20 @@ def audit_pay(report_id):
         return jsonify({"error":"报告不存在"}), 404
     if r["unlocked"]:
         return jsonify({"error":"报告已解锁"}), 400
+    if not stripe.api_key or stripe.api_key == "sk_test_placeholder":
+        return jsonify({"error":"Stripe is not configured"}), 503
     try:
-        price_cents = int(float(r["price"].replace("$","").replace("¥","")) * 100)
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
-            line_items=[{"price_data":{"currency":"usd","product_data":{"name":f"Temu Listing AI Audit - {r['title'][:50]}"},"unit_amount":price_cents},"quantity":1}],
+            line_items=[{"price_data":{"currency":AUDIT_PRICE_CURRENCY,"product_data":{"name":f"Temu Listing AI Audit - {r['title'][:50]}"},"unit_amount":AUDIT_PRICE_CENTS},"quantity":1}],
             mode="payment",
-            success_url=f"{PUBLIC_DOMAIN}/api/audit/report/{report_id}/success?session_id={{CHECKOUT_SESSION_ID}}",
+            success_url=f"{PUBLIC_DOMAIN}/audit?report_id={report_id}&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{PUBLIC_DOMAIN}/audit?canceled=1",
             metadata={"report_id":report_id}
         )
         return jsonify({"checkout_url":session.url, "session_id":session.id})
     except Exception as e:
-        # 如果 Stripe 不可用，回退到模拟支付
-        order_no = f"WX{datetime.now().strftime('%Y%m%d%H%M%S')}{report_id[:4].upper()}"
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=wxp://f2f0YtqBkN{order_no}"
-        return jsonify({"qr_url":qr_url, "order_no":order_no, "fallback":True})
+        return jsonify({"error": str(e)[:160]}), 502
 
 @app.route("/api/audit/report/<report_id>/success")
 def audit_pay_success(report_id):
@@ -3016,7 +3106,7 @@ def audit_pay_success(report_id):
         return """<html><body style='text-align:center;padding-top:80px;font-family:sans-serif'><h2 style='color:red'>参数错误</h2><a href='{}'>返回</a></body></html>""".format(f"{PUBLIC_DOMAIN}/audit"), 400
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        if session.get("payment_status") == "paid":
+        if session.get("payment_status") == "paid" and session.get("metadata", {}).get("report_id") == report_id:
             db = get_db()
             db.execute("UPDATE audit_reports SET unlocked=1 WHERE id=?", [report_id])
             db.commit()
@@ -3042,7 +3132,7 @@ def stripe_webhook():
         if endpoint_secret:
             event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
         else:
-            event = json.loads(payload)
+            return jsonify({"error":"webhook secret not configured"}), 400
         if event["type"] == "checkout.session.completed":
             session = event["data"]["object"]
             report_id = session.get("metadata",{}).get("report_id","")
@@ -3056,7 +3146,12 @@ def stripe_webhook():
 
 @app.route("/")
 def index():
-    return render_template_string(HTML)
+    return render_template_string(HTML.replace("</body>", coze_widget_html() + "</body>"))
+
+
+@app.route("/healthz")
+def healthz():
+    return jsonify({"status": "ok"})
 
 @app.after_request
 def no_cache(r):

@@ -5,6 +5,7 @@ WORKDIR /app
 # System dependencies for PDF generation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wkhtmltopdf \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -19,4 +20,4 @@ VOLUME ["/app/uploads", "/app/chroma_db"]
 
 EXPOSE 8080
 
-CMD ["python", "app.py"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "180"]

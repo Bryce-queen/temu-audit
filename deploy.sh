@@ -18,6 +18,14 @@ if [ ! -f .env ]; then
 STRIPE_SECRET_KEY=sk_test_YOUR_KEY_HERE
 STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY_HERE
 STRIPE_WEBHOOK_SECRET=
+ADMIN_TOKEN=change_me_to_a_long_random_value
+SECRET_KEY=change_me_to_another_long_random_value
+ZHIPU_API_KEY=
+SILICONFLOW_API_KEY=
+COZE_BOT_ID=
+COZE_TOKEN=
+AUDIT_PRICE_CENTS=499
+AUDIT_PRICE_CURRENCY=usd
 PUBLIC_DOMAIN=http://localhost:8080
 EOF
     echo "[INFO] Edit .env with your real Stripe keys, then re-run."
